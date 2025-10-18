@@ -1,0 +1,151 @@
+- name: Add OSD hosts to Ceph cluster
+  ceph.automation.ceph_orch_host:
+    name: "{{ item }}"
+    labels:
+      - osd
+    address: "{{ hostvars[item]['ansible_host'] }}"
+  loop: "{{ groups['osds'] }}"
+  run_once: true
+  delegate_to: "{{ groups['ceph-mon'][0] }}"
+
+- name: Wait for device inventory to refresh
+  ansible.builtin.pause:
+    seconds: 30
+  run_once: true
+
+- name: Trigger device scan
+  ansible.builtin.command:
+    cmd: cephadm shell -- ceph orch device ls --refresh
+  run_once: true
+  delegate_to: "{{ groups['ceph-mon'][0] }}"
+  changed_when: false
+
+- name: Check current OSD count
+  ansible.builtin.shell:
+    cmd: cephadm shell -- ceph osd ls | wc -l
+  register: existing_osds
+  run_once: true
+  delegate_to: "{{ groups['ceph-mon'][0] }}"
+  changed_when: false
+
+- name: Check expected OSD count
+  ansible.builtin.set_fact:
+    expected_osds: "{{ groups['osds'] | length }}"
+  run_once: true
+
+- name: Wait for devices to become available
+  ansible.builtin.shell:
+    cmd: |
+      cephadm shell -- ceph orch device ls --format json | jq -r '.[] | .devices[] | select(.available == true) | .path' | wc -l
+  register: available_devices
+  until: available_devices.stdout | int == 3
+  retries: 30
+  delay: 15
+  run_once: true
+  delegate_to: "{{ groups['ceph-mon'][0] }}"
+  changed_when: false
+  when: existing_osds.stdout | int < expected_osds | int
+
+- name: Set compression algo
+  ansible.builtin.command:
+    cmd: cephadm shell -- ceph config set global bluestore_compression_algorithm snappy
+
+
+- name: Set compression mode
+  ansible.builtin.command:
+    cmd: cephadm shell -- ceph config set global bluestore_compression_mode passive
+
+- name: Provision OSD's
+  ceph.automation.ceph_orch_apply:
+    spec: |
+      service_type: osd
+      service_id: osd
+      placement:
+        label: osd
+      spec:
+        data_devices:
+          all: true
+        encrypted: true
+  when: existing_osds.stdout | int < expected_osds | int
+
+- name: Create RGW
+  ceph.automation.ceph_orch_apply:
+    spec: |
+      service_type: rgw
+      service_id: rgw
+      placement:
+        hosts:
+          - ceph-osd-01
+          - ceph-osd-02
+          - ceph-osd-03
+      spec:
+        rgw_frontend_port: 8080
+
+- name: Create MDS
+  ceph.automation.ceph_orch_apply:
+    spec: |
+      service_type: mds
+      service_id: fs_name
+      placement:
+        hosts:
+          - ceph-osd-01
+          - ceph-osd-02
+          - ceph-osd-03
+        count: 3
+
+- name: Create filesystem
+  ansible.builtin.command:
+    cmd: cephadm shell -- ceph fs volume create fs_name
+
+- name: Create NFS
+  ceph.automation.ceph_orch_apply:
+    spec: |
+      service_type: nfs
+      service_id: mynfs
+      placement:
+        hosts:
+          - ceph-osd-01
+          - ceph-osd-02
+          - ceph-osd-03
+      spec:
+        port: 12345
+
+- name: Create NFS ingress
+  ceph.automation.ceph_orch_apply:
+    spec: |
+      service_type: ingress
+      service_id: nfs.mynfs
+      placement:
+        count: 2
+      spec:
+        backend_service: nfs.mynfs
+        frontend_port: 2049
+        monitor_port: 9000
+        virtual_ip: 192.168.56.201/24
+        virtual_interface_networks:
+          - 192.168.56.0/24
+
+- name: Create NFS export for CephFS
+  ansible.builtin.command:
+    cmd: cephadm shell -- ceph nfs export create cephfs mynfs /nfs fs_name --path=/
+  retries: 5
+  delay: 15
+
+
+- name: Create rgw ingress
+  ceph.automation.ceph_orch_apply:
+    spec: |
+      service_type: ingress
+      service_id: rgw.ingress
+      placement:
+        hosts:
+          - ceph-osd-01
+          - ceph-osd-02
+          - ceph-osd-03
+      spec:
+        backend_service: rgw.rgw
+        virtual_ip: 192.168.56.200/24
+        frontend_port: 8888
+        monitor_port: 1968
+
+

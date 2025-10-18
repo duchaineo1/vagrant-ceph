@@ -1,0 +1,17 @@
+---
+- hosts: all
+  remote_user: vagrant
+
+  tasks:
+    - name: Download ceph adm
+      get_url:
+        url: https://download.ceph.com/rpm-{{ CEPH_RELEASE }}/el9/noarch/cephadm
+        dest: /tmp/cephadm
+        mode: '0440'
+
+    - name: bootstrap a cluster via cephadm (with custom values)
+      cephadm_bootstrap:
+        mon_ip: 192.168.56.101
+        dashboard: true
+        monitoring: false
+        firewalld: false

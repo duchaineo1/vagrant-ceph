@@ -1,0 +1,8 @@
+- name: install ceph
+  hosts: all
+  gather_facts: true
+  become: true
+  become_user: root
+  remote_user: vagrant
+  roles:
+    - ceph-install

@@ -1,0 +1,13 @@
+service_type: ingress
+service_id: rgw.foo
+placement:
+  hosts:
+    - ceph-osd-01
+    - ceph-osd-02
+    - ceph-osd-03
+spec:
+  backend_service: rgw.foo
+  virtual_ips_list:
+  - 192.168.56.200/24
+  frontend_port: 8080
+  monitor_port: 1967

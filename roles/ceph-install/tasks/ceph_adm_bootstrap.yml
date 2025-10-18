@@ -1,0 +1,52 @@
+- name: Install packages
+  dnf: 
+    name: 
+      - jq
+      - python3-pyyaml
+      - python3-jinja2
+    state: present
+
+- name: Check if Ceph cluster is already bootstrapped
+  command:  cephadm shell -- ceph -s
+  register: ceph_status
+  failed_when: false
+  changed_when: false
+
+- name: Download ceph adm
+  get_url:
+    url: https://download.ceph.com/rpm-{{ CEPH_RELEASE }}/el9/noarch/cephadm
+    dest: /tmp/cephadm
+    mode: '0755'
+  when: ceph_status.rc != 0
+  run_once: true
+
+- name: install cephadm binary
+  shell:
+    cmd: |
+      install /tmp/cephadm /usr/bin/
+  when: ceph_status.rc != 0
+  run_once: true
+
+- name: bootstrap a cluster via cephadm (with custom values)
+  cephadm_bootstrap:
+    mon_ip: 192.168.56.101
+    dashboard: true
+    monitoring: false
+    firewalld: false
+  when: ceph_status.rc != 0
+  run_once: true
+
+- name: Fetch ceph pub key
+  slurp:
+    path: /etc/ceph/ceph.pub
+  register: ssh_key_content
+  delegate_to: "{{ groups['ceph-mon'][0] }}"
+
+- name: Deploy ceph SSH key to OSD hosts
+  authorized_key:
+    user: root
+    key: "{{ ssh_key_content.content | b64decode }}"
+    state: present
+  delegate_to: "{{ item }}"
+  loop: "{{ groups['osds'] }}"
+

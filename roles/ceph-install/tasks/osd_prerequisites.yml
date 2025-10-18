@@ -1,0 +1,7 @@
+- name: Install Chrony and Podman
+  dnf: 
+    name: 
+     - chrony
+     - podman
+     - lvm2
+    state: present

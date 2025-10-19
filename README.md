@@ -12,5 +12,4 @@
  cd vagrant-ceph
  vangrant up
  ansible-playbook playbook.yml -i inv.ini
- ``` 
 ```

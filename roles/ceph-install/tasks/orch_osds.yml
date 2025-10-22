@@ -53,7 +53,7 @@
 
 - name: Set compression mode
   ansible.builtin.command:
-    cmd: cephadm shell -- ceph config set global bluestore_compression_mode passive
+    cmd: cephadm shell -- ceph config set global bluestore_compression_mode agressive
 
 - name: Provision OSD's
   ceph.automation.ceph_orch_apply:
